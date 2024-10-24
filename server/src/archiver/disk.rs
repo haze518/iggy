@@ -2,6 +2,7 @@ use crate::archiver::Archiver;
 use crate::configs::server::DiskArchiverConfig;
 use crate::server_error::ServerArchiverError;
 use async_trait::async_trait;
+use error_set::ResultContext;
 use std::path::Path;
 use tokio::fs;
 use tracing::{debug, info};
@@ -22,7 +23,9 @@ impl Archiver for DiskArchiver {
     async fn init(&self) -> Result<(), ServerArchiverError> {
         if !Path::new(&self.config.path).exists() {
             info!("Creating disk archiver directory: {}", self.config.path);
-            fs::create_dir_all(&self.config.path).await?;
+            fs::create_dir_all(&self.config.path)
+                .await
+                .with_error(|_| format!("Failed to create directory: {}", self.config.path))?;
         }
         Ok(())
     }
@@ -58,8 +61,14 @@ impl Archiver for DiskArchiver {
             let base_directory = base_directory.as_deref().unwrap_or_default();
             let destination = Path::new(&self.config.path).join(base_directory).join(file);
             let destination_path = destination.to_str().unwrap_or_default().to_owned();
-            fs::create_dir_all(destination.parent().unwrap()).await?;
-            fs::copy(source, destination).await?;
+            fs::create_dir_all(destination.parent().unwrap())
+                .await
+                .with_error(|_| {
+                    format!("Failed to create directory for file: {file} at: {destination_path}",)
+                })?;
+            fs::copy(source, destination).await.with_error(|_| {
+                format!("Failed to copy file: {file} to destination: {destination_path}")
+            })?;
             debug!("Archived file: {file} at: {destination_path}");
         }
 
